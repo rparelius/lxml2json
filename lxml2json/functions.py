@@ -5,7 +5,7 @@ from lxml import etree
 from collections import OrderedDict
 
 
-def xml2json(xml, ordered=False, noText=None, noCombine=False):
+def convert(xml, ordered=False, noText=None, noCombine=False):
     '''Converts any xml object into its JSON equivalent.
     
     Each element creates a unique key in the dictionary structure based on its tag.
@@ -42,7 +42,11 @@ def xml2json(xml, ordered=False, noText=None, noCombine=False):
     Returns:  A dictionary of converted XML data
     '''
     
+    #convert input to xml if given a string
+    if type(xml) == str:
+        xml = etree.fromstring(xml)
     
+    #determine whether to use an ordered dictionary
     if ordered is True:
         dt = OrderedDict
     else:
@@ -73,7 +77,7 @@ def xml2json(xml, ordered=False, noText=None, noCombine=False):
                     #check if the duplicate children have text values
                     childDict = dt()
                     parent_must_be_list = False
-                    #for each child tag
+                    
                     for x in set(childTags):
                         
                         if noCombine is False or x not in noCombine:
@@ -86,23 +90,27 @@ def xml2json(xml, ordered=False, noText=None, noCombine=False):
                                     
                                     #collect all of their text elements in a list
                                     combinedChildText = [ elem.text for elem in xml.xpath("./{}".format(x)) ]
-
-                                                                
+   
                                     #validate that each entry in the list contains valid text
                                     if False not in [ t is not None or re.search('\w', t) is not None for t in combinedChildText ]:
                                     
-                                        #if so, create an dict entry for the tag, with the list as the value
-                                        childDict.update({ x: combinedChildText })
+                                        #validate that no entries contain attributes
+                                        if False not in [ len(a.attrib) == 0 for a in children ]:
                                     
+                                            #create an dict entry for the tag, with the list as the value
+                                            childDict.update({ x: combinedChildText })
+                                            
+                                        else:
+                                            parent_must_be_list = True
                                     else: 
                                         parent_must_be_list = True
                                 else:
                                     parent_must_be_list = True
-                                
-                    #remove combined elements from children list to prevent iteration on the next loop
-                    children = [ x for x in children if x.tag not in childDict.keys() ]
-                    
+                                                   
                     if len(childDict) > 0:
+                        #remove combined elements from children list to prevent iteration on the next loop
+                        children = [ x for x in children if x.tag not in childDict.keys() ]
+                        
                         if parent_must_be_list is False:
                             value = childDict
                         else:
@@ -128,12 +136,14 @@ def xml2json(xml, ordered=False, noText=None, noCombine=False):
         
         #if parent object is a list
         if type(parent) == list:
+            
             #append to parent and append tuples of children-to-self to iteration list
             parent.append(self)
             [ l.append(( x, parent[-1][tag] )) for x in children ]
         
         #if parent is a dict
         elif type(parent) in [ dict, collections.OrderedDict ]:
+            
             #add entry to parent and append tuples of children-to-self to iteration list
             parent.update(self)
             [ l.append(( x, parent[tag] )) for x in children ]
@@ -150,8 +160,8 @@ def xml2json(xml, ordered=False, noText=None, noCombine=False):
     #begin iteration logic, running the iteration function on the first entry in list l, then removing the entry after iteration.
     while True:
         if len(l) > 0:
-            iterate(l[0][0], l[0][1])
-            l.pop(0)
+            xmlElem, jsonObject = l.pop(0)
+            iterate(xmlElem, jsonObject)
         else:
             break
     
