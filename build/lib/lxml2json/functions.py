@@ -4,18 +4,17 @@ import re, collections
 from lxml import etree
 from collections import OrderedDict
 
-
-def convert(xml, ordered=False, noText=None, noCombine=False):
+def convert(xml, ordered=False, noText=None):
     '''Converts any xml object into its JSON equivalent.
     
-    Each element creates a unique key in the dictionary structure based on its tag.
-    The value is either the text value of the element, or a placeholder for its children.
+    Each element creates the dictionary structure for its children based on their tags
+    If an element has no children, its value becomes either the text value of the element or a default value.
     
     The iteration logic applies the following general rules:
     
         1) Elements with child elements:
-            - if any children have identical tags: create a list entry if those children do not have text values
-            - if all children have unique tags: create a dictionary entry
+            - for children with identical tags: create a list object for the child's tag
+            - for children with unique tags: create a dict object for the child's tag
         
         2) Elements with no children:
             - if there are word characters in the text entry: use the text as the value.
@@ -32,13 +31,6 @@ def convert(xml, ordered=False, noText=None, noCombine=False):
         
         - noText: (optional) defaults to None. Specify the value to give empty elements.
         
-        - noCombine: (optional) defaults to False. By default the function will try to combine sibling elements'
-                    text values in a list if all of the siblings have text values and no children.
-        
-                    Input a list of tags to exclude from this process. 
-                    Or set to True skip combining any sibling elements.
-                            
-    
     Returns:  A dictionary of converted XML data
     '''
     
@@ -54,99 +46,74 @@ def convert(xml, ordered=False, noText=None, noCombine=False):
         
     
     def iterate(xml, parent):
-        #get own tag, text
+        self = dt()
+        
+        #process own values
         tag = xml.tag
         text = xml.text
-          
+        if text is None or not re.search('\w', text):
+            text = noText
+        
         #get children
         children = xml.xpath("./*")
-        childTags = [ x.tag for x in children ]
+        childTags = []
+        [ childTags.append(x.tag) for x in children if x.tag not in childTags ]
         
-        #logic for handing no children
-        if len(children) == 0:
-            if text is None or not re.search('\w', text):
-                value = noText
-            else:
-                value = text
-        else:
-            #logic for when child elements have duplicate tags, which therefore require a list
-            if len(childTags) > len(set(childTags)):
-                
-                if noCombine is not True:
-                
-                    #check if the duplicate children have text values
-                    childDict = dt()
-                    parent_must_be_list = False
-                    
-                    for x in set(childTags):
-                        
-                        if noCombine is False or x not in noCombine:
-                        
-                            #if there are multiple elements with the same tag
-                            if len(filter(lambda y: x == y , childTags)) > 1:
-                                
-                                #ensure that those elements don't have children
-                                if len(xml.xpath("./{}/*".format(x))) == 0:
-                                    
-                                    #collect all of their text elements in a list
-                                    combinedChildText = [ elem.text for elem in xml.xpath("./{}".format(x)) ]
-   
-                                    #validate that each entry in the list contains valid text
-                                    if False not in [ t is not None or re.search('\w', t) is not None for t in combinedChildText ]:
-                                    
-                                        #validate that no entries contain attributes
-                                        if False not in [ len(a.attrib) == 0 for a in children ]:
-                                    
-                                            #create an dict entry for the tag, with the list as the value
-                                            childDict.update({ x: combinedChildText })
-                                            
-                                        else:
-                                            parent_must_be_list = True
-                                    else: 
-                                        parent_must_be_list = True
-                                else:
-                                    parent_must_be_list = True
-                                                   
-                    if len(childDict) > 0:
-                        #remove combined elements from children list to prevent iteration on the next loop
-                        children = [ x for x in children if x.tag not in childDict.keys() ]
-                        
-                        if parent_must_be_list is False:
-                            value = childDict
-                        else:
-                            value = [ childDict ]
-                    else:
-                        value = []
-                else:
-                    value = []
-            else:
-                value = dt()
-        
-        #get attributes
+        #get attributes        
         attr = dt(xml.attrib)
         if len(attr) > 0:
             attr = dt({ '@': attr })
-            if type(value) == list:
-                value.append(attr)
-            elif type(value) in [ dict, collections.OrderedDict ]:
-                value.update(attr)
+            self.update(attr)
         
-        #create a dictionary object for current element
-        self = dt({ tag: value })
+        #if there are children, create the dict structure for children
+        if len(children) > 0:
+                               
+            for x in childTags:
+                if len(filter(lambda y: x == y.tag, children)) > 1:
+                    self.update({ x: [] })
+                else:
+                    self.update({ x: dt()})
+                    
+            #process child text
+            children_to_remove = []
+            for child in children:
+                if len(child.xpath("./*")) == 0:
+                    if type(self[child.tag]) in [ dict, collections.OrderedDict ]:
+                        if child.text is None or not re.search('\w', child.text):
+                            self.update({ child.tag: noText })
+                            children_to_remove.append(child)
+                        elif child.text is not None:
+                            self.update({ child.tag: child.text })
+                            children_to_remove.append(child)
+                        
+            #update children
+            children = [ x for x in children if x not in children_to_remove ]
         
-        #if parent object is a list
+        #if there are no children and no text value 
+        elif xml.text is None or not re.search('\w', xml.text):
+            self.update({ tag: text })
+            
+        #if there are no children, no attributes, but a text value
+        elif xml.text is not None and re.search('\w', xml.text) is not None:
+            self = xml.text
+              
         if type(parent) == list:
-            
-            #append to parent and append tuples of children-to-self to iteration list
             parent.append(self)
-            [ l.append(( x, parent[-1][tag] )) for x in children ]
-        
-        #if parent is a dict
+            if len(children) > 0:
+                for child in children:
+                    l.append((
+                        child,
+                        parent[-1][child.tag]
+                        )
+                    )
         elif type(parent) in [ dict, collections.OrderedDict ]:
-            
-            #add entry to parent and append tuples of children-to-self to iteration list
             parent.update(self)
-            [ l.append(( x, parent[tag] )) for x in children ]
+            if len(children) > 0:
+                for child in children:
+                    l.append((
+                        child,
+                        parent[child.tag]
+                    ))
             
     #create list to contain xml-dictionary tuples for iteration
     l = []
@@ -154,8 +121,11 @@ def convert(xml, ordered=False, noText=None, noCombine=False):
     #create dictionary
     d = dt()
     
-    #bootstrap the process    
-    l.append((xml, d))
+    #bootstrap the process
+    rootTag = xml.tag
+    if len(xml.xpath('./*')) > 0:
+        d[rootTag] = dt()
+        l.append((xml, d[rootTag]))
     
     #begin iteration logic, running the iteration function on the first entry in list l, then removing the entry after iteration.
     while True:
