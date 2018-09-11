@@ -4,7 +4,7 @@ import re, collections
 from lxml import etree
 from collections import OrderedDict
 
-def convert(xml, ordered=False, noText=None):
+def convert(xml, ordered=False, noText=None, alwaysList=None):
     '''Converts any xml object into its JSON equivalent.
     
     Each element creates the dictionary structure for its children based on their tags
@@ -31,6 +31,9 @@ def convert(xml, ordered=False, noText=None):
         
         - noText: (optional) defaults to None. Specify the value to give empty elements.
         
+        - alwaysList: (optional) accepts a list or string of comma-separated xpath statements that will specify elements to always
+                      store as a list of values. This is to allow for a more deterministic behavior for common elements. See README.md for an example
+        
     Returns:  A dictionary of converted XML data
     '''
     
@@ -43,17 +46,24 @@ def convert(xml, ordered=False, noText=None):
         dt = OrderedDict
     else:
         dt = dict
+    
+    #handle elements specified to always be stored in a list
+    al = []
+    if alwaysList is not None:
+        if type(alwaysList) == str:
+            alwaysList = [ x.strip() for x in alwaysList.split(",") ]
         
+        for x in alwaysList:
+            try:
+                [ al.append(e) for e in xml.xpath(x) if e not in al ]
+            except Exception as Err:
+                log.error("alwaysList: {}".format(Err))
+                continue
+            
     
     def iterate(xml, parent):
         self = dt()
-        
-        #process own values
-        tag = xml.tag
-        text = xml.text
-        if text is None or not re.search('\w', text):
-            text = noText
-        
+              
         #get children
         children = xml.xpath("./*")
         childTags = []
@@ -69,34 +79,47 @@ def convert(xml, ordered=False, noText=None):
         if len(children) > 0:
                                
             for x in childTags:
+                #if there are multiple child elements with the same tag, create a list structure to hold them
                 if len(filter(lambda y: x == y.tag, children)) > 1:
                     self.update({ x: [] })
+                
+                #if there is only a single element for a given tag, create a dict structure unless it is specified as 'alwaysList'
                 else:
-                    self.update({ x: dt()})
-                    
-            #process child text
+                    if filter(lambda y: x == y.tag, children)[0] in al:
+                        self.update({ x: [] })
+                    else:
+                        self.update({ x: dt()})
+                
+            #process lone child text, i.e. children w/ no children & no attributes
             children_to_remove = []
             for child in children:
                 if len(child.xpath("./*")) == 0:
-                    if type(self[child.tag]) in [ dict, collections.OrderedDict ]:
-                        if child.text is None or not re.search('\w', child.text):
-                            self.update({ child.tag: noText })
-                            children_to_remove.append(child)
-                        elif child.text is not None:
-                            self.update({ child.tag: child.text })
+                    if len(child.attrib) == 0:
+                        if type(self[child.tag]) in [ dict, collections.OrderedDict ]:
+                            if child.text is None or not re.search('\w', child.text):
+                                self.update({ child.tag: noText })
+                            else:
+                                self.update({ child.tag: child.text })
+                            
                             children_to_remove.append(child)
                         
-            #update children
-            children = [ x for x in children if x not in children_to_remove ]
-        
-        #if there are no children and no text value 
-        elif xml.text is None or not re.search('\w', xml.text):
-            self.update({ tag: text })
+                        elif type(self[child.tag]) == list:
+                            if child.text is None or not re.search('\w', child.text):
+                                self[child.tag].append(noText)
+                            else:
+                                self[child.tag].append(child.text)
+                            
+                            children_to_remove.append(child)
             
-        #if there are no children, no attributes, but a text value
-        elif xml.text is not None and re.search('\w', xml.text) is not None:
-            self = xml.text
-              
+            #remove processed children
+            children = [ child for child in children if child not in children_to_remove ]
+        
+        #this should only be true if the root element has children and/or attributes AND a text value
+        if xml.text is not None and re.search('\w', xml.text) is not None:
+            self.update({'text': xml.text})
+        
+        
+        #update parent dict/list and add children to l for iteration
         if type(parent) == list:
             parent.append(self)
             if len(children) > 0:
@@ -123,17 +146,24 @@ def convert(xml, ordered=False, noText=None):
     
     #bootstrap the process
     rootTag = xml.tag
+    d[rootTag] = dt()
+    
     if len(xml.xpath('./*')) > 0:
-        d[rootTag] = dt()
         l.append((xml, d[rootTag]))
+    else:
+        if len(xml.attrib) == 0:
+            if xml.text is not None and re.search('\w', xml.text):
+                d[rootTag] = xml.text
+            else:
+                d[rootTag] = noText
+        else:
+            l.append((xml, d[rootTag]))
+                
     
     #begin iteration logic, running the iteration function on the first entry in list l, then removing the entry after iteration.
-    while True:
-        if len(l) > 0:
-            xmlElem, jsonObject = l.pop(0)
-            iterate(xmlElem, jsonObject)
-        else:
-            break
-    
+    while len(l) > 0:
+        xmlElem, jsonObject = l.pop(0)
+        iterate(xmlElem, jsonObject)
+
     return d
 
