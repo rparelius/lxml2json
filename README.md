@@ -3,7 +3,13 @@
 **lxml2json is a python package that converts XML elements into their JSON equivalent.**
 
 
-**Usage Example:**
+**Installation:**
+        
+        pip install lxml2json
+        
+        
+
+**Usage:**
         
         from lxml2json import convert
         from pprint import pprint as pp
