@@ -5,10 +5,10 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="lxml2json",
-    version="0.2.1",
+    version="0.2.2",
     author="Robert Parelius",
     author_email="rparelius@gmail.com",
-    description="converts XML elements into their JSON equivalent",
+    description="converts XML elements into their JSON equivalent or vice versa",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/rparelius/lxml2json",

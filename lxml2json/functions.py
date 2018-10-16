@@ -167,3 +167,57 @@ def convert(xml, ordered=False, noText=None, alwaysList=None):
 
     return d
 
+def reverse(inputDict, text=False):
+    """Creates an XML element from an input dictionary.
+    
+    Args: 
+        inputDict: input dictionary. If the inputted data has more than 1 key-value pair, it will create a 'root' element
+        text: <bool> Specify whether to output a string of the xml data.
+    
+    Returns:
+        xml element OR pretty printed string of xml element.
+    """
+    l = []
+    
+    #determine if 'root' element is necessary. e.g. for multiple top-level key-value pairs, or top-level value is a list.
+    if len(inputDict) > 1:
+        inputDict = { 'root': inputDict }
+    if True in [ type(inputDict[x]) == list for x in inputDict ]:
+        inputDict = { 'root': inputDict }
+    
+    for key in inputDict:
+        xmlData = etree.Element(key)
+        l.append((xmlData, inputDict[key]))
+    
+    while len(l) > 0:       
+        parentXml, data = l.pop(0)
+        
+        def processText(data):
+            parentXml.text = str(data)
+        
+        def processDict(data):
+            for k, v in data.items():
+                #if attributes, update attributes
+                if k == '@':
+                    parentXml.attrib.update(v)
+                else:
+                    #process lists
+                    if type(v) == list:
+                        for item in v:
+                            parent = etree.SubElement(parentXml, k)
+                            l.append((parent, item))
+                    else:
+                        parent = etree.SubElement(parentXml, k)        
+                        l.append((parent, v))   
+        
+        
+        if type(data) in [ dict, collections.OrderedDict ]:
+            processDict(data)
+        
+        elif type(data) in [ int, str ]:
+            processText(data)
+    
+    if text is True:
+        xmlData = etree.tostring(xmlData, pretty_print=True)
+    
+    return xmlData

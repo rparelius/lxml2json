@@ -135,3 +135,21 @@ In this example, the xpath query: **"./*/num"** will match all the 'num' element
 Notice that the 3rd 'num' value is now a list, similar to the first 2 instances.
                     
 You can supply as many xpath queries as you like, either as a list of queries, or a string of comma-separated values. In either case, the matching elements will be flagged.
+
+
+### Converting from JSON to XML
+
+lxml2json provides a 'reverse' function that generates an XML element (or string) for an inputted dictionary object.
+
+Note: if the inputted dictionary has multiple top-level k:v pairs, or if the value of the top-level key is a list, then a 'root' element is created so as to allow for a properly
+formatted xml structure, which requires a single root element.
+
+**Options**
+
+There is a single boolean option: 'text', which defaults to False. When set to True, the reverse function will output a pretty-printed string of the xml element created.
+
+
+
+
+
+
