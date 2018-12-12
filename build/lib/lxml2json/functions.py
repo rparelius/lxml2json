@@ -3,8 +3,9 @@
 import re, collections
 from lxml import etree
 from collections import OrderedDict
+import logging
 
-def convert(xml, ordered=False, noText=None, alwaysList=None):
+def convert(xml, ordered=False, noText=None, alwaysList=None, ignore=None):
     '''Converts any xml object into its JSON equivalent.
     
     Each element creates the dictionary structure for its children based on their tags
@@ -26,13 +27,12 @@ def convert(xml, ordered=False, noText=None, alwaysList=None):
     Args:
     
         - xml: (required) The inputted xml object to be converted.
-        
         - ordered: (optional) defaults to False. Specify whether or not to generate an OrderedDict
-        
         - noText: (optional) defaults to None. Specify the value to give empty elements.
-        
-        - alwaysList: (optional) accepts a list or string of comma-separated xpath statements that will specify elements to always
-                      store as a list of values. This is to allow for a more deterministic behavior for common elements. See README.md for an example
+        - alwaysList: (optional) accepts a list or string of comma-separated xpath statements that will specify elements 
+                      to always store as a list of values. This is to allow for a more deterministic behavior for common elements.
+                      See README.md for an example
+        - ignore: (optional) accepts a list or string of comma-separated xpath queries that will specify elements to always ignore.
         
     Returns:  A dictionary of converted XML data
     '''
@@ -57,15 +57,26 @@ def convert(xml, ordered=False, noText=None, alwaysList=None):
             try:
                 [ al.append(e) for e in xml.xpath(x) if e not in al ]
             except Exception as Err:
-                log.error("alwaysList: {}".format(Err))
+                logging.error(Err.message, exc_info=True)
                 continue
             
+    ig = []
+    if ignore is not None:
+        if type(ignore) == str:
+            ignore = [ x.strip() for x in ignore.split(",") ]
+            
+        for x in ignore:
+            try:
+                [ ig.append(e) for e in xml.xpath(x) if e not in ig ]
+            except Exception as Err:
+                logging.error(Err.message, exc_info=True)
+                continue
     
     def iterate(xml, parent):
         self = dt()
               
-        #get children
-        children = xml.xpath("./*")
+        #get children, exluding those matched to be ignored
+        children = [ x for x in xml.xpath("./*") if x not in ig ]
         childTags = []
         [ childTags.append(x.tag) for x in children if x.tag not in childTags ]
         
@@ -80,12 +91,12 @@ def convert(xml, ordered=False, noText=None, alwaysList=None):
                                
             for x in childTags:
                 #if there are multiple child elements with the same tag, create a list structure to hold them
-                if len(filter(lambda y: x == y.tag, children)) > 1:
+                if len(list(filter(lambda y: x == y.tag, children))) > 1:
                     self.update({ x: [] })
                 
                 #if there is only a single element for a given tag, create a dict structure unless it is specified as 'alwaysList'
                 else:
-                    if filter(lambda y: x == y.tag, children)[0] in al:
+                    if list(filter(lambda y: x == y.tag, children))[0] in al:
                         self.update({ x: [] })
                     else:
                         self.update({ x: dt()})

@@ -55,7 +55,8 @@ lxml2json provides the following optional arguments to modify conversion behavio
 -  **alwaysList:** Defaults to None. Allows specification of xpath queries to apply to the inputted XML element that will
                    cause all matched elements to be stored as lists. This is useful for creating a deterministic data structure.
                    See below for an example.
-                   
+-  **ignore:** Defaults to None. Allows specification of xpath queries to apply to the inputted XML element that will cause
+               all matched elements to be ignored.                   
                    
 ### alwaysList
 
