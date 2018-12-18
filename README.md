@@ -1,6 +1,6 @@
 # lxml2json
 
-**lxml2json is a python package that converts XML elements into their JSON equivalent.**
+**lxml2json is a python package that converts XML elements into their JSON equivalent, and vice versa.**
 
 
 **Installation:**
