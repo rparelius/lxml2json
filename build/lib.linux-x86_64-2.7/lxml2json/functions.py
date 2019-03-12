@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-
-import re, collections
+import re, collections, lxml, logging
 from lxml import etree
 from collections import OrderedDict
-import logging
+from copy import deepcopy
 
-def convert(xml, ordered=False, noText=None, alwaysList=None, ignore=None):
+
+def convert(xml, ordered=False, noText=None, alwaysList=None, ignore=None, rename=None, move=None):
     '''Converts any xml object into its JSON equivalent.
     
     Each element creates the dictionary structure for its children based on their tags
@@ -19,62 +19,46 @@ def convert(xml, ordered=False, noText=None, alwaysList=None, ignore=None):
         
         2) Elements with no children:
             - if there are word characters in the text entry: use the text as the value.
-            - if there are no word characters in the text entry: set value to: None or whatever is specified in the 'noText' argument.
+            - if there are no word characters in the text entry, then
+              set value to: None or whatever is specified in the 'noText' argument.
             
         3) Elements with attributes:
             - create a subelement dictionary with '@' as a key and the attributes dict as the value.
     
     Args:
-    
-        - xml: (required) The inputted xml object to be converted.
-        - ordered: (optional) defaults to False. Specify whether or not to generate an OrderedDict
-        - noText: (optional) defaults to None. Specify the value to give empty elements.
-        - alwaysList: (optional) accepts a list or string of comma-separated xpath statements that will specify elements 
-                      to always store as a list of values. This is to allow for a more deterministic behavior for common elements.
-                      See README.md for an example
-        - ignore: (optional) accepts a list or string of comma-separated xpath queries that will specify elements to always ignore.
         
+        - xml: (required) The inputted xml object to be converted.
+        
+        - ordered: (optional) defaults to False. Specify whether or not to generate an OrderedDict
+        
+        - noText: (optional) defaults to None. Specify the value to give empty elements.
+        
+        - alwaysList: (optional) accepts a list or string of comma-separated xpath statements that
+                      will specify elements to always store as a list of values. This is to allow 
+                      for a more deterministic behavior for common elements. See README.md for an example
+        
+        - ignore: (optional) accepts a list or string of comma-separated xpath queries that
+                             will specify elements to always ignore.
+        
+        - rename: (optional) accepts a tuple/list, or list of said objects, each containing
+                             an xpath query of elements to match, along with the desired tag.
+                  
+                  e.g. to rename all elements with tag 'FOO' to 'BAR':  rename=(".//FOO", "BAR")
+        
+        - move: (optional) accepts a tuple/list, or list of said objects, each containing an xpath
+                           query of elements to match, along with an xpath query relative to the
+                           matched elements which specifies the desired location. 
+                
+                e.g. to move all elements with tag 'test' 1 level up use: move=(".//test", "./../..")
+    
     Returns:  A dictionary of converted XML data
     '''
     
-    #convert input to xml if given a string
-    if type(xml) == str:
-        xml = etree.fromstring(xml)
     
-    #determine whether to use an ordered dictionary
-    if ordered is True:
-        dt = OrderedDict
-    else:
-        dt = dict
-    
-    #handle elements specified to always be stored in a list
-    al = []
-    if alwaysList is not None:
-        if type(alwaysList) == str:
-            alwaysList = [ x.strip() for x in alwaysList.split(",") ]
-        
-        for x in alwaysList:
-            try:
-                [ al.append(e) for e in xml.xpath(x) if e not in al ]
-            except Exception as Err:
-                logging.error(Err.message, exc_info=True)
-                continue
-            
-    ig = []
-    if ignore is not None:
-        if type(ignore) == str:
-            ignore = [ x.strip() for x in ignore.split(",") ]
-            
-        for x in ignore:
-            try:
-                [ ig.append(e) for e in xml.xpath(x) if e not in ig ]
-            except Exception as Err:
-                logging.error(Err.message, exc_info=True)
-                continue
-    
+    #core iterator
     def iterate(xml, parent):
         self = dt()
-              
+        
         #get children, exluding those matched to be ignored
         children = [ x for x in xml.xpath("./*") if x not in ig ]
         childTags = []
@@ -90,6 +74,7 @@ def convert(xml, ordered=False, noText=None, alwaysList=None, ignore=None):
         if len(children) > 0:
                                
             for x in childTags:
+                
                 #if there are multiple child elements with the same tag, create a list structure to hold them
                 if len(list(filter(lambda y: x == y.tag, children))) > 1:
                     self.update({ x: [] })
@@ -135,20 +120,96 @@ def convert(xml, ordered=False, noText=None, alwaysList=None, ignore=None):
             parent.append(self)
             if len(children) > 0:
                 for child in children:
-                    l.append((
-                        child,
-                        parent[-1][child.tag]
-                        )
-                    )
+                    l.append((child, parent[-1][child.tag]))
+        
         elif type(parent) in [ dict, collections.OrderedDict ]:
             parent.update(self)
             if len(children) > 0:
                 for child in children:
-                    l.append((
-                        child,
-                        parent[child.tag]
-                    ))
+                    l.append((child, parent[child.tag]))
+    
+    
+    def move_element(xml_obj, move_what, move_to):
+        
+        elements = xml_obj.xpath(move_what)
+        for e in elements:
+            [ ee.insert(-1, e) for ee in e.xpath(move_to)]
+    
+    
+    #convert input to xml if given a string or create deepcopy to prevent mutations to the original data (e.g. rename tag)
+    if type(xml) == str:
+        xml = etree.fromstring(xml)
+    elif type(xml) is lxml.etree._Element:
+        xml = deepcopy(xml)
+    
+    
+    #determine whether to use an ordered dictionary
+    if ordered is True:
+        dt = OrderedDict
+    else:
+        dt = dict
+    
+    
+    #handle elements specified to always be stored in a list
+    al = []
+    if alwaysList is not None:
+        if type(alwaysList) is str:
+            alwaysList = [ x.strip() for x in alwaysList.split(",") ]
+        
+        for x in alwaysList:
+            try:
+                [ al.append(e) for e in xml.xpath(x) if e not in al ]
+            except Exception as Err:
+                logging.error(Err.message, exc_info=True)
+                continue
+    
+    
+    #move specified elements
+    if move is not None:
+        if type(move) is list:
+            if False in [ type(x) is tuple for x in move ]:
+                raise Exception("arg: 'move' must be a single tuple or list of tuples")
+        elif type(move) is tuple:
+            move = [ move ]
+        else:
+            raise Exception("arg: 'move' must be a single tuple or list of tuples")
+
+        for m in move:
+            move_element(xml_obj=xml, move_what=m[0], move_to=m[1])
+    
+    
+    #rename specified elements
+    if rename is not None:
+        if type(rename) is list:
+            if False in [ type(x) is tuple for x in rename ]:
+                raise Exception("arg: 'rename' must be a single tuple or list of tuples")
+        elif type(rename) is tuple:
+            rename = [ rename ]
+        else:
+            raise Exception("arg: 'rename' must be a single tuple or list of tuples")
+        
+        for r in rename:
             
+            #rename each tag matched by the xpath query to the desired tag.
+            for e in xml.xpath(r[0]):
+                e.tag = r[1]
+    
+    
+    #ignore specified elements
+    ig = []
+    if ignore is not None:
+        if type(ignore) == str:
+            ignore = [ x.strip() for x in ignore.split(",") ]
+            
+        for x in ignore:
+            try:
+                [ ig.append(e) for e in xml.xpath(x) if e not in ig ]
+            except Exception as Err:
+                logging.error(Err.message, exc_info=True)
+                continue
+        
+    
+    
     #create list to contain xml-dictionary tuples for iteration
     l = []
     
@@ -175,8 +236,9 @@ def convert(xml, ordered=False, noText=None, alwaysList=None, ignore=None):
     while len(l) > 0:
         xmlElem, jsonObject = l.pop(0)
         iterate(xmlElem, jsonObject)
-
+    
     return d
+
 
 def reverse(inputDict, text=False):
     """Creates an XML element from an input dictionary.
@@ -188,6 +250,7 @@ def reverse(inputDict, text=False):
     Returns:
         xml element OR pretty printed string of xml element.
     """
+    
     l = []
     
     #determine if 'root' element is necessary. e.g. for multiple top-level key-value pairs, or top-level value is a list.
@@ -232,3 +295,4 @@ def reverse(inputDict, text=False):
         xmlData = etree.tostring(xmlData, pretty_print=True)
     
     return xmlData
+
