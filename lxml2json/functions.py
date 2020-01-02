@@ -293,6 +293,8 @@ def reverse(inputDict, text=False):
     
     if text is True:
         xmlData = etree.tostring(xmlData, pretty_print=True)
+        if type(xmlData) is bytes:
+            xmlData = xmlData.decode('utf-8')
     
     return xmlData
 
